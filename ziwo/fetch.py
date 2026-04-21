@@ -2,26 +2,20 @@
 
 import csv
 import json
-import os
 import sys
 from datetime import datetime, time, timedelta
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import requests
-from dotenv import load_dotenv
 
-load_dotenv()
-
-BASE_URL = os.environ["ZIWO_BASE_URL"].rstrip("/")
-USERNAME = os.environ["ZIWO_USERNAME"]
-PASSWORD = os.environ["ZIWO_PASSWORD"]
-TARGET_DATE = os.environ.get("ZIWO_TARGET_DATE", "2026-04-10")
+from .config import BASE_URL, EXPORTS_DIR, PASSWORD, USERNAME, ensure_dirs
 
 TZ = ZoneInfo("Africa/Cairo")
 PAGE_SIZE = 100
 
 
-def login() -> str:
+def _login() -> str:
     r = requests.post(
         f"{BASE_URL}/auth/login",
         json={"username": USERNAME, "password": PASSWORD},
@@ -35,7 +29,7 @@ def login() -> str:
     return token
 
 
-def fetch_page(token: str, skip: int, limit: int = PAGE_SIZE) -> list[dict]:
+def _fetch_page(token: str, skip: int, limit: int = PAGE_SIZE) -> list[dict]:
     r = requests.get(
         f"{BASE_URL}/callHistory/",
         params=[
@@ -54,29 +48,29 @@ def fetch_page(token: str, skip: int, limit: int = PAGE_SIZE) -> list[dict]:
     return calls or []
 
 
-def parse_started(val: str) -> datetime:
+def _parse_started(val: str) -> datetime:
     return datetime.fromisoformat(val.replace("Z", "+00:00"))
 
 
-def main() -> None:
+def fetch_calls_for_date(target_date: str) -> dict:
+    """Fetch inbound calls with recordings for target_date (YYYY-MM-DD), write CSV.
+
+    Returns a dict with kept/skipped counts and the output CSV path.
+    Prints page-by-page progress to stdout.
+    """
+    if not BASE_URL or not USERNAME or not PASSWORD:
+        raise RuntimeError(
+            "ZIWO_BASE_URL / ZIWO_USERNAME / ZIWO_PASSWORD must be set in .env"
+        )
+
     day_start = datetime.combine(
-        datetime.strptime(TARGET_DATE, "%Y-%m-%d").date(), time.min, tzinfo=TZ
+        datetime.strptime(target_date, "%Y-%m-%d").date(), time.min, tzinfo=TZ
     )
     day_end = day_start + timedelta(days=1)
     print(f"Target window: {day_start.isoformat()} → {day_end.isoformat()}")
 
-    token = login()
+    token = _login()
     print(f"Authenticated. Token: {token[:8]}…")
-
-    # Discovery: dump one raw call so real field names are visible before full run.
-    sample = fetch_page(token, skip=0, limit=1)
-    if sample:
-        print("\n=== Sample call (adjust field mapping below if needed) ===")
-        print(json.dumps(sample[0], indent=2, default=str))
-        print("=== End sample ===\n")
-    else:
-        print("No calls returned on sample fetch — nothing to do.")
-        return
 
     rows: list[dict] = []
     skipped_too_new = 0
@@ -85,7 +79,7 @@ def main() -> None:
     skip = 0
 
     while True:
-        calls = fetch_page(token, skip=skip, limit=PAGE_SIZE)
+        calls = _fetch_page(token, skip=skip, limit=PAGE_SIZE)
         if not calls:
             break
 
@@ -94,7 +88,7 @@ def main() -> None:
             started_raw = call.get("startedAt")
             if not started_raw:
                 continue
-            started = parse_started(started_raw).astimezone(TZ)
+            started = _parse_started(started_raw).astimezone(TZ)
 
             if started >= day_end:
                 skipped_too_new += 1
@@ -158,22 +152,18 @@ def main() -> None:
             break
         skip += PAGE_SIZE
 
-    exports_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "exports")
-    os.makedirs(exports_dir, exist_ok=True)
-    out_path = os.path.join(exports_dir, f"calls_{TARGET_DATE}.csv")
+    ensure_dirs()
+    out_path = Path(EXPORTS_DIR) / f"calls_{target_date}.csv"
     if rows:
-        with open(out_path, "w", newline="") as f:
+        with out_path.open("w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
             writer.writeheader()
             writer.writerows(rows)
 
-    print("\nDone.")
-    print(f"  kept:                   {len(rows)}")
-    print(f"  skipped (too new):      {skipped_too_new}")
-    print(f"  skipped (not inbound):  {skipped_not_inbound}")
-    print(f"  skipped (no recording): {skipped_no_recording}")
-    print(f"  output:                 {out_path}")
-
-
-if __name__ == "__main__":
-    main()
+    return {
+        "kept": len(rows),
+        "skipped_too_new": skipped_too_new,
+        "skipped_not_inbound": skipped_not_inbound,
+        "skipped_no_recording": skipped_no_recording,
+        "output_path": out_path,
+    }

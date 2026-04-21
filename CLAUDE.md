@@ -18,6 +18,7 @@ Resumable per-call state machine in `data/calls.db`:
 | Concern                  | File                                 |
 | ------------------------ | ------------------------------------ |
 | CLI entrypoint           | `pipeline.py`                        |
+| Ziwo API fetch           | `ziwo/fetch.py`                      |
 | DB schema + migration    | `ziwo/db.py`                         |
 | Extraction (Gemini)      | `ziwo/extract.py`                    |
 | Queue parsing + orders   | `ziwo/queues.py`                     |
@@ -44,7 +45,8 @@ Resumable per-call state machine in `data/calls.db`:
 ## Operational
 
 - Activate venv first: `source .venv/bin/activate`
-- Subcommands: `python pipeline.py {ingest|download|transcribe|extract|queues|mece|status|show|run}`
+- Subcommands: `python pipeline.py {fetch|ingest|download|transcribe|extract|queues|mece|status|show|run}`. `run` chains `fetch → ingest → download → transcribe → extract`; pass `--skip-fetch` to skip the Ziwo API call and reuse the CSV already on disk.
+- **LLM concurrency**: `transcribe` and `extract` steps run Gemini calls in parallel, tuned independently via `TRANSCRIBE_CONCURRENCY` and `EXTRACT_CONCURRENCY` in `.env` (default 10 each). DB writes stay single-threaded. Rate-limit / 5xx errors are non-fatal — affected calls stay at their pre-step status (`downloaded` / `transcribed`) for the next run to pick up.
 - DB inspect: `sqlite3 data/calls.db "..."` — truncate transcript-bearing columns with `substr(call_summary,1,120)` etc. Never `SELECT *`.
 - **MySQL order lookup** requires `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_DATABASE` in `.env`. Queries `orders` + `order_customers` tables. If not configured, `queues` step still runs without order linkage.
 - **Transcript backfill cleanup**: `python scripts/clean_transcripts.py [--dry-run]` — one-shot script to clean filler tags from existing transcripts. Safe to re-run (idempotent).

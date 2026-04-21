@@ -1,12 +1,14 @@
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 
 from google import genai
 from google.genai import types
+from google.genai import errors as genai_errors
 from tqdm import tqdm
 
-from .config import GEMINI_API_KEY, GEMINI_MODEL
+from .config import GEMINI_API_KEY, GEMINI_MODEL, TRANSCRIBE_CONCURRENCY
 from .db import connect, list_by_status, update_status
 
 # Bracketed tags that are pure filler — collapse consecutive runs into one line.
@@ -72,6 +74,47 @@ def _split_transcript(text: str) -> tuple[str, str | None]:
     return text.strip(), None
 
 
+def _is_retryable(exc: BaseException) -> bool:
+    if isinstance(exc, genai_errors.APIError):
+        code = getattr(exc, "code", None)
+        if code == 429:
+            return True
+        if isinstance(code, int) and 500 <= code < 600:
+            return True
+    return False
+
+
+def _transcribe_one(client: genai.Client, call_id: int, audio_path: str) -> dict:
+    try:
+        audio_bytes = Path(audio_path).read_bytes()
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=[
+                types.Part.from_bytes(data=audio_bytes, mime_type="audio/mp3"),
+                PROMPT,
+            ],
+        )
+        text = (response.text or "").strip()
+        if not text:
+            raise RuntimeError("empty Gemini response")
+
+        transcript, language = _split_transcript(text)
+        transcript = clean_transcript(transcript)
+        return {
+            "call_id": call_id,
+            "ok": True,
+            "transcript": transcript,
+            "language": language,
+        }
+    except Exception as e:
+        return {
+            "call_id": call_id,
+            "ok": False,
+            "error": f"transcribe: {e}",
+            "retryable": _is_retryable(e),
+        }
+
+
 def transcribe_downloaded(limit: int | None = None) -> tuple[int, int]:
     if not GEMINI_API_KEY:
         raise RuntimeError("GEMINI_API_KEY is not set in .env")
@@ -84,7 +127,8 @@ def transcribe_downloaded(limit: int | None = None) -> tuple[int, int]:
         if not rows:
             return 0, 0
 
-        for row in tqdm(rows, desc="transcribing", unit="call"):
+        pending = []
+        for row in rows:
             call_id = row["id"]
             audio_path = row["audio_path"]
             if not audio_path or not Path(audio_path).exists():
@@ -94,39 +138,50 @@ def transcribe_downloaded(limit: int | None = None) -> tuple[int, int]:
                 failed += 1
                 conn.commit()
                 continue
+            pending.append((call_id, audio_path))
 
-            try:
-                audio_bytes = Path(audio_path).read_bytes()
-                response = client.models.generate_content(
-                    model=GEMINI_MODEL,
-                    contents=[
-                        types.Part.from_bytes(
-                            data=audio_bytes, mime_type="audio/mp3"
-                        ),
-                        PROMPT,
-                    ],
-                )
-                text = (response.text or "").strip()
-                if not text:
-                    raise RuntimeError("empty Gemini response")
+        if not pending:
+            return done, failed
 
-                transcript, language = _split_transcript(text)
-                transcript = clean_transcript(transcript)
-                update_status(
-                    conn,
-                    call_id,
-                    "transcribed",
-                    transcript=transcript,
-                    transcript_language=language,
-                    transcribed_at=datetime.utcnow().isoformat(timespec="seconds"),
-                    error_message=None,
-                )
-                done += 1
-            except Exception as e:
-                update_status(
-                    conn, call_id, "failed", error_message=f"transcribe: {e}"
-                )
-                failed += 1
-            conn.commit()
+        workers = max(1, TRANSCRIBE_CONCURRENCY)
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [
+                pool.submit(_transcribe_one, client, cid, path)
+                for cid, path in pending
+            ]
+            for future in tqdm(
+                as_completed(futures),
+                total=len(futures),
+                desc="transcribing",
+                unit="call",
+            ):
+                result = future.result()
+                call_id = result["call_id"]
+                if result["ok"]:
+                    update_status(
+                        conn,
+                        call_id,
+                        "transcribed",
+                        transcript=result["transcript"],
+                        transcript_language=result["language"],
+                        transcribed_at=datetime.utcnow().isoformat(timespec="seconds"),
+                        error_message=None,
+                    )
+                    done += 1
+                elif result.get("retryable"):
+                    # Leave at 'downloaded' so the next run re-picks it up.
+                    update_status(
+                        conn,
+                        call_id,
+                        "downloaded",
+                        error_message=result["error"],
+                    )
+                    failed += 1
+                else:
+                    update_status(
+                        conn, call_id, "failed", error_message=result["error"]
+                    )
+                    failed += 1
+                conn.commit()
 
     return done, failed
