@@ -22,6 +22,8 @@ CSV_TO_DB = {
 
 INT_FIELDS = {"id", "audio_quality", "duration", "talk_time", "ring_time", "agent_id"}
 
+MIN_TALK_TIME = 45
+
 
 def _coerce(db_field: str, value: str):
     if value is None or value == "":
@@ -31,9 +33,10 @@ def _coerce(db_field: str, value: str):
     return value
 
 
-def ingest_csv(csv_path: Path) -> int:
+def ingest_csv(csv_path: Path) -> tuple[int, int]:
     init_db()
     inserted = 0
+    excluded_short = 0
     with open(csv_path, newline="") as f, connect() as conn:
         reader = csv.DictReader(f)
         for csv_row in reader:
@@ -43,6 +46,10 @@ def ingest_csv(csv_path: Path) -> int:
             }
             if db_row["id"] is None:
                 continue
+            talk_time = db_row.get("talk_time")
+            if talk_time is not None and talk_time < MIN_TALK_TIME:
+                excluded_short += 1
+                continue
             if insert_if_new(conn, db_row):
                 inserted += 1
-    return inserted
+    return inserted, excluded_short

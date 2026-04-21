@@ -28,14 +28,16 @@ The pipeline is a **resumable per-call state machine** persisted in `data/calls.
               ▼
    ┌─────────────────────┐
    │       pending       │  ← ingest CSV into SQLite (ziwo/ingest.py)
-   └──────────┬──────────┘
-              │
+   └──────────┬──────────┘     rows with talk_time < 45s are skipped
+              │                (MIN_TALK_TIME in ziwo/ingest.py)
               ▼  download .mp3 (ziwo/download.py)
    ┌─────────────────────┐
    │     downloaded      │
    └──────────┬──────────┘
               │
-              ▼  Gemini transcribe (ziwo/transcribe.py)
+              ▼  Gemini transcribe + translate to English
+                 (ziwo/transcribe.py; source language recorded in
+                  transcript_language)
    ┌─────────────────────┐
    │     transcribed     │
    └──────────┬──────────┘
@@ -127,12 +129,16 @@ All stages are **resumable and idempotent**. Re-running skips rows already past 
 ├── ziwo/                             Reusable package
 │   ├── config.py                     Env loading + project paths
 │   ├── db.py                         SQLite schema, migration, helpers
-│   ├── ingest.py                     CSV → SQLite
+│   ├── ingest.py                     CSV → SQLite (filters talk_time < MIN_TALK_TIME)
 │   ├── download.py                   Ziwo recording → local .mp3
-│   ├── transcribe.py                 .mp3 → speaker-labeled transcript (Gemini)
+│   ├── transcribe.py                 .mp3 → English speaker-labeled transcript (Gemini translates on the fly)
 │   ├── extract.py                    Transcript → structured features (Gemini, Pydantic)
 │   ├── queues.py                     queue_name → country/language/queue_intent
 │   └── mece.py                       Deterministic MECE taxonomy + friction score
+├── scripts/                          One-shot backfills (safe to re-run; use --dry-run first)
+│   ├── clean_transcripts.py          Strip filler tags from existing transcripts
+│   ├── translate_transcripts.py      Text-to-text translate non-English transcripts to English
+│   └── delete_short_calls.py         Hard-delete rows with talk_time < MIN_TALK_TIME + their .mp3 files
 ├── .claude/commands/                 Project-specific Claude Code slash commands
 │   ├── backfill-extraction.md        Reset + re-extract after a prompt change
 │   ├── sample-bucket.md              Pull 3–5 sample calls from a theme/category
@@ -154,7 +160,7 @@ Single table: `calls`. Schema lives in [`ziwo/db.py`](ziwo/db.py). Grouped by so
 |---|---|---|
 | **Ziwo metadata** | `id`, `direction`, `queue_name`, `started_at`, `duration`, `talk_time`, `ring_time`, `audio_quality`, `caller_id_number`, `agent_id`, `agent_cc_login`, `agent_first_name`, `agent_last_name`, `recording_file` | `ingest.py` |
 | **Pipeline state** | `status`, `audio_path`, `error_message`, `created_at`, `updated_at` | Every stage |
-| **Transcription** | `transcript`, `transcript_language`, `transcribed_at` | `transcribe.py` |
+| **Transcription** | `transcript` (English), `transcript_language` (source language), `transcribed_at`, `transcript_translated_at` (set by the text-to-text translate backfill script) | `transcribe.py`, `scripts/translate_transcripts.py` |
 | **LLM extraction** | `call_summary`, `intent_action`, `intent_object`, `intent_qualifier`, `qualifier_theme`, `sentiment`, `resolution`, `partial_reason`, `escalation_requested`, `extracted_at` | `extract.py` |
 | **Queue parse** | `country`, `language`, `queue_intent` | `queues.py` |
 | **MECE mapping** | `category`, `subcategory`, `friction_score`, `queue_matches_category` | `mece.py` |
@@ -163,7 +169,7 @@ Single table: `calls`. Schema lives in [`ziwo/db.py`](ziwo/db.py). Grouped by so
 
 ## Going deeper
 
-- **What the analysis does and why** → [`docs/transcript-analysis-methodology.md`](docs/transcript-analysis-methodology.md). Read this before making any change to extraction prompts, enum values, or the MECE mapping.
+- **What the analysis does and why** → [`docs/transcript-analysis-methodology.md`](docs/transcript-analysis-methodology.md). Read this before making any change to extraction prompts, enum values, or the MECE mapping. The methodology doc's "Appendix: Pipeline cutover history" tracks dated discontinuities in the corpus (prompt versions, filter thresholds) — check it before comparing metrics across dates.
 - **Collaboration conventions** (how to work in this repo with Claude Code) → [`CLAUDE.md`](CLAUDE.md).
 - **Workflow shortcuts** → the slash commands in `.claude/commands/`. Each file is a documented prompt; you can read them standalone.
 

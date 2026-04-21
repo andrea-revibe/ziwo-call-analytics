@@ -10,7 +10,7 @@ The pipeline has three stages, mirroring the chatbot analysis pipeline so result
 2. **Extract** — use an LLM (Gemini 2.5 Flash) to tag each transcript with intent, sentiment, and call resolution
 3. **Categorize** — map extracted features into a MECE taxonomy with friction scores
 
-All labels (intents, sentiment, categories) are in **English** for consistency and cross-channel comparison. Transcripts remain in the original spoken language (primarily Egyptian Arabic, occasional English code-switching).
+All labels (intents, sentiment, categories) are in **English** for consistency and cross-channel comparison. Transcripts are stored as **English translations** produced by Gemini during transcription; the original spoken language (primarily Egyptian Arabic, occasional English) is preserved in the `transcript_language` column for filtering and audit.
 
 **Scope note:** agent performance is deliberately out of scope. The methodology focuses on *what customers call about and where they struggle*, not *how individual agents handle calls*.
 
@@ -33,7 +33,7 @@ Omissions vs. the chatbot pipeline: no URL/markdown stripping, no boilerplate cl
 
 ## Stage 2: Feature Extraction
 
-Each preprocessed transcript is sent to Gemini 2.5 Flash with a Pydantic `response_schema` for structured JSON output. For the current POC (179 calls) transcripts are processed one-per-request; batching (10 per call) will be added when scaling to thousands per day.
+Each preprocessed transcript is sent to Gemini 2.5 Flash with a Pydantic `response_schema` for structured JSON output. Input to the extractor is always English (translated at the transcription stage), so the prompt assumes English idioms and cue phrases for resolution / partial-reason discrimination. For the current POC (179 calls) transcripts are processed one-per-request; batching (10 per call) will be added when scaling to thousands per day.
 
 Eight fields are extracted per call:
 
@@ -328,11 +328,21 @@ The dashboard's primary views:
 
 ## Notes and Open Considerations
 
-- **Audio-based sentiment** is expected to be materially better than transcript-only for phone calls. Not adopted in the POC to keep cost and latency low. Straightforward to upgrade by passing the mp3 bytes instead of the transcript string to Gemini. Revisit after the first dashboard review, or whenever a decision becomes sentiment-critical.
+- **Audio-based sentiment** is expected to be materially better than transcript-only for phone calls, and the case is stronger now that transcripts are English translations rather than verbatim text. Translation drops tone-carrying particles and register shifts on top of the tone/volume/silence signal already lost when going from audio to text. Not adopted in the POC to keep cost and latency low. Straightforward to upgrade by passing the mp3 bytes instead of the transcript string to Gemini. Revisit after the first dashboard review, or whenever a decision becomes sentiment-critical.
 - **Sample size** — 179 calls is enough to validate the methodology end-to-end but too small to rank subcategories with high confidence. Treat Phase-1 dashboard numbers as directional. A meaningful volume target for trustworthy rankings is ~1000+ calls per analyzed window.
 - **Batching** — for the POC, per-call extraction is simpler and the cost is trivial. At ~1000 calls/day, batch ~10 transcripts per LLM call to cut cost/latency; add rate limiting.
 - **Cross-channel comparability** — the MECE tree is intentionally close to the chatbot version (minus the calls-specific additions). This lets volume and friction be compared like-for-like across channels, so we can answer questions like "of all customer contacts about Delivery Issues, what share arrive via chatbot vs. phone?".
 - **Agent performance is out of scope** for this pipeline. If added later, it would go as a separate axis (per-call agent QA scores), not by changing the friction score.
+
+---
+
+## Appendix: Pipeline cutover history
+
+Structural changes that create discontinuities in the corpus and should be annotated on any over-time view:
+
+- **2026-04-21 — English-translation transcription.** The transcription prompt switched from verbatim (original language) to English-translated output. Pre-existing Arabic transcripts were backfilled via text-to-text translation (`scripts/translate_transcripts.py`). The `transcript_language` column still reports the source language.
+- **2026-04-21 — Extraction prompt v2 (English-input).** `ziwo/extract.py` prompt was retuned for English input: dropped the "return values in English" redundancy, added cue phrases for `partial_reason` discrimination, added a "mostly [unintelligible]/[Hold music] → No" resolution rule, and tightened `call_summary` to past-tense narrative. **Historical rows were intentionally NOT re-extracted** — they retain extractions produced directly from Arabic source transcripts, which preserve more signal than a second pass over translated text would. Expect a small break in `partial_reason` distribution and `call_summary` prose style at the cutover date; this is a prompt-version artifact, not a behavioral change.
+- **2026-04-21 — 45s minimum talk-time filter at ingest.** Calls shorter than 45s are no longer ingested (started at 30s, bumped to 45s same-day). One-shot `scripts/delete_short_calls.py` removed existing short calls. Volume counts before this date include those short calls; after, they do not.
 
 ---
 
