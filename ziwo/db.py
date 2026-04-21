@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS calls (
     call_summary TEXT,
     sentiment TEXT,
     resolution TEXT,
+    partial_reason TEXT,
     escalation_requested INTEGER,
     extracted_at TEXT,
 
@@ -65,6 +66,7 @@ EXTENSION_COLUMNS = {
     "call_summary": "TEXT",
     "sentiment": "TEXT",
     "resolution": "TEXT",
+    "partial_reason": "TEXT",
     "escalation_requested": "INTEGER",
     "extracted_at": "TEXT",
     "country": "TEXT",

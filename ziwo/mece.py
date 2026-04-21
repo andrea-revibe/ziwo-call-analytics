@@ -226,8 +226,10 @@ def friction_score(sentiment: str | None, resolution: str | None) -> int:
     score = 0
     if sentiment in {"Frustrated", "Angry"}:
         score += 1
-    if resolution == "No":
+    if resolution == "Partial":
         score += 1
+    elif resolution == "No":
+        score += 2
     return score
 
 

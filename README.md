@@ -155,7 +155,7 @@ Single table: `calls`. Schema lives in [`ziwo/db.py`](ziwo/db.py). Grouped by so
 | **Ziwo metadata** | `id`, `direction`, `queue_name`, `started_at`, `duration`, `talk_time`, `ring_time`, `audio_quality`, `caller_id_number`, `agent_id`, `agent_cc_login`, `agent_first_name`, `agent_last_name`, `recording_file` | `ingest.py` |
 | **Pipeline state** | `status`, `audio_path`, `error_message`, `created_at`, `updated_at` | Every stage |
 | **Transcription** | `transcript`, `transcript_language`, `transcribed_at` | `transcribe.py` |
-| **LLM extraction** | `call_summary`, `intent_action`, `intent_object`, `intent_qualifier`, `qualifier_theme`, `sentiment`, `resolution`, `extracted_at` | `extract.py` |
+| **LLM extraction** | `call_summary`, `intent_action`, `intent_object`, `intent_qualifier`, `qualifier_theme`, `sentiment`, `resolution`, `partial_reason`, `escalation_requested`, `extracted_at` | `extract.py` |
 | **Queue parse** | `country`, `language`, `queue_intent` | `queues.py` |
 | **MECE mapping** | `category`, `subcategory`, `friction_score`, `queue_matches_category` | `mece.py` |
 
