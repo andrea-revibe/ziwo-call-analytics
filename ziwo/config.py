@@ -18,6 +18,8 @@ TARGET_DATE = os.environ.get("ZIWO_TARGET_DATE", "2026-04-10")
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+TRANSCRIBE_CONCURRENCY = int(os.environ.get("TRANSCRIBE_CONCURRENCY", "10"))
+EXTRACT_CONCURRENCY = int(os.environ.get("EXTRACT_CONCURRENCY", "10"))
 
 MYSQL_HOST = os.environ.get("MYSQL_HOST", "")
 MYSQL_PORT = int(os.environ.get("MYSQL_PORT", "3306"))

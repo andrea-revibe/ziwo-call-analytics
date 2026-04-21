@@ -1,14 +1,16 @@
 """LLM feature extraction: summary, intent, theme, sentiment, resolution."""
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from typing import Literal, Optional
 
 from google import genai
 from google.genai import types
+from google.genai import errors as genai_errors
 from pydantic import BaseModel
 from tqdm import tqdm
 
-from .config import GEMINI_API_KEY, GEMINI_MODEL
+from .config import EXTRACT_CONCURRENCY, GEMINI_API_KEY, GEMINI_MODEL
 from .db import connect, list_by_status, update_status
 
 ACTIONS = Literal[
@@ -171,6 +173,42 @@ Transcript:
 ---"""
 
 
+def _is_retryable(exc: BaseException) -> bool:
+    if isinstance(exc, genai_errors.APIError):
+        code = getattr(exc, "code", None)
+        if code == 429:
+            return True
+        if isinstance(code, int) and 500 <= code < 600:
+            return True
+    return False
+
+
+def _extract_one(client: genai.Client, call_id: int, transcript: str) -> dict:
+    try:
+        response = client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=PROMPT.format(transcript=transcript),
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=Extraction,
+                temperature=0.1,
+            ),
+        )
+        parsed: Extraction | None = response.parsed
+        if parsed is None:
+            raise RuntimeError(
+                f"unparseable response: {(response.text or '')[:200]!r}"
+            )
+        return {"call_id": call_id, "ok": True, "parsed": parsed}
+    except Exception as e:
+        return {
+            "call_id": call_id,
+            "ok": False,
+            "error": f"extract: {e}",
+            "retryable": _is_retryable(e),
+        }
+
+
 def extract_transcribed(limit: int | None = None) -> tuple[int, int]:
     if not GEMINI_API_KEY:
         raise RuntimeError("GEMINI_API_KEY is not set in .env")
@@ -183,7 +221,8 @@ def extract_transcribed(limit: int | None = None) -> tuple[int, int]:
         if not rows:
             return 0, 0
 
-        for row in tqdm(rows, desc="extracting", unit="call"):
+        pending = []
+        for row in rows:
             call_id = row["id"]
             transcript = row["transcript"]
             if not transcript or not transcript.strip():
@@ -193,45 +232,58 @@ def extract_transcribed(limit: int | None = None) -> tuple[int, int]:
                 failed += 1
                 conn.commit()
                 continue
+            pending.append((call_id, transcript))
 
-            try:
-                response = client.models.generate_content(
-                    model=GEMINI_MODEL,
-                    contents=PROMPT.format(transcript=transcript),
-                    config=types.GenerateContentConfig(
-                        response_mime_type="application/json",
-                        response_schema=Extraction,
-                        temperature=0.1,
-                    ),
-                )
-                parsed: Extraction | None = response.parsed
-                if parsed is None:
-                    raise RuntimeError(
-                        f"unparseable response: {(response.text or '')[:200]!r}"
+        if not pending:
+            return done, failed
+
+        workers = max(1, EXTRACT_CONCURRENCY)
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [
+                pool.submit(_extract_one, client, cid, tx)
+                for cid, tx in pending
+            ]
+            for future in tqdm(
+                as_completed(futures),
+                total=len(futures),
+                desc="extracting",
+                unit="call",
+            ):
+                result = future.result()
+                call_id = result["call_id"]
+                if result["ok"]:
+                    parsed: Extraction = result["parsed"]
+                    update_status(
+                        conn,
+                        call_id,
+                        "extracted",
+                        call_summary=parsed.call_summary,
+                        intent_action=parsed.intent_action,
+                        intent_object=parsed.intent_object,
+                        intent_qualifier=parsed.intent_qualifier,
+                        qualifier_theme=parsed.qualifier_theme,
+                        sentiment=parsed.sentiment,
+                        resolution=parsed.resolution,
+                        partial_reason=parsed.partial_reason,
+                        escalation_requested=int(parsed.escalation_requested),
+                        extracted_at=datetime.utcnow().isoformat(timespec="seconds"),
+                        error_message=None,
                     )
-
-                update_status(
-                    conn,
-                    call_id,
-                    "extracted",
-                    call_summary=parsed.call_summary,
-                    intent_action=parsed.intent_action,
-                    intent_object=parsed.intent_object,
-                    intent_qualifier=parsed.intent_qualifier,
-                    qualifier_theme=parsed.qualifier_theme,
-                    sentiment=parsed.sentiment,
-                    resolution=parsed.resolution,
-                    partial_reason=parsed.partial_reason,
-                    escalation_requested=int(parsed.escalation_requested),
-                    extracted_at=datetime.utcnow().isoformat(timespec="seconds"),
-                    error_message=None,
-                )
-                done += 1
-            except Exception as e:
-                update_status(
-                    conn, call_id, "failed", error_message=f"extract: {e}"
-                )
-                failed += 1
-            conn.commit()
+                    done += 1
+                elif result.get("retryable"):
+                    # Leave at 'transcribed' so the next run re-picks it up.
+                    update_status(
+                        conn,
+                        call_id,
+                        "transcribed",
+                        error_message=result["error"],
+                    )
+                    failed += 1
+                else:
+                    update_status(
+                        conn, call_id, "failed", error_message=result["error"]
+                    )
+                    failed += 1
+                conn.commit()
 
     return done, failed

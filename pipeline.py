@@ -1,11 +1,12 @@
 """Ziwo call analytics pipeline CLI.
 
 Usage:
+    python pipeline.py fetch
     python pipeline.py ingest [--csv PATH]
     python pipeline.py download [--limit N]
     python pipeline.py transcribe [--limit N]
     python pipeline.py extract [--limit N]
-    python pipeline.py run [--limit N]
+    python pipeline.py run [--limit N] [--skip-fetch]
     python pipeline.py status
     python pipeline.py show <call_id>
 """
@@ -17,6 +18,7 @@ from ziwo.config import EXPORTS_DIR, TARGET_DATE
 from ziwo.db import connect, init_db, status_counts
 from ziwo.download import download_pending
 from ziwo.extract import extract_transcribed
+from ziwo.fetch import fetch_calls_for_date
 from ziwo.ingest import MIN_TALK_TIME, ingest_csv
 from ziwo.mece import classify_mece
 from ziwo.queues import classify_queues
@@ -25,6 +27,16 @@ from ziwo.transcribe import transcribe_downloaded
 
 def _default_csv() -> Path:
     return EXPORTS_DIR / f"calls_{TARGET_DATE}.csv"
+
+
+def cmd_fetch(_args: argparse.Namespace) -> None:
+    r = fetch_calls_for_date(TARGET_DATE)
+    print(
+        f"Fetched {r['kept']} calls → {r['output_path']} "
+        f"(skipped: too-new={r['skipped_too_new']}, "
+        f"not-inbound={r['skipped_not_inbound']}, "
+        f"no-recording={r['skipped_no_recording']})"
+    )
 
 
 def cmd_ingest(args: argparse.Namespace) -> None:
@@ -64,6 +76,14 @@ def cmd_mece(_args: argparse.Namespace) -> None:
 
 
 def cmd_run(args: argparse.Namespace) -> None:
+    if not args.skip_fetch:
+        r = fetch_calls_for_date(TARGET_DATE)
+        print(
+            f"Fetched {r['kept']} calls → {r['output_path']} "
+            f"(skipped: too-new={r['skipped_too_new']}, "
+            f"not-inbound={r['skipped_not_inbound']}, "
+            f"no-recording={r['skipped_no_recording']})"
+        )
     csv_path = _default_csv()
     if csv_path.exists():
         inserted, excluded_short = ingest_csv(csv_path)
@@ -127,6 +147,9 @@ def main() -> None:
     p = argparse.ArgumentParser()
     sub = p.add_subparsers(dest="cmd", required=True)
 
+    p_fetch = sub.add_parser("fetch", help="Fetch Ziwo callHistory for TARGET_DATE → CSV")
+    p_fetch.set_defaults(func=cmd_fetch)
+
     p_ing = sub.add_parser("ingest", help="Load CSV rows into SQLite")
     p_ing.add_argument("--csv", help=f"CSV path (default: {_default_csv()})")
     p_ing.set_defaults(func=cmd_ingest)
@@ -149,8 +172,15 @@ def main() -> None:
     p_m = sub.add_parser("mece", help="Map extracted calls to category/subcategory + friction score")
     p_m.set_defaults(func=cmd_mece)
 
-    p_run = sub.add_parser("run", help="Ingest + download + transcribe + extract in order")
+    p_run = sub.add_parser(
+        "run", help="Fetch + ingest + download + transcribe + extract in order"
+    )
     p_run.add_argument("--limit", type=int, default=None)
+    p_run.add_argument(
+        "--skip-fetch",
+        action="store_true",
+        help="Skip the Ziwo API fetch step (use the existing CSV on disk)",
+    )
     p_run.set_defaults(func=cmd_run)
 
     p_st = sub.add_parser("status", help="Show pipeline status counts")

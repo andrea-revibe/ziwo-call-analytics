@@ -23,7 +23,8 @@ The pipeline is a **resumable per-call state machine** persisted in `data/calls.
           [Ziwo API]
               │
               ▼
-         fetch_calls.py          →  CSV snapshot of one day's calls
+        pipeline.py fetch        →  CSV snapshot of one day's calls
+         (ziwo/fetch.py)
               │
               ▼
    ┌─────────────────────┐
@@ -83,7 +84,7 @@ Always activate the venv first: `source .venv/bin/activate`.
 
 ```bash
 # 1. Pull the day's calls into a CSV snapshot.
-python fetch_calls.py
+python pipeline.py fetch
 
 # 2. Load the CSV into SQLite (rows start as `pending`).
 python pipeline.py ingest
@@ -109,7 +110,7 @@ python pipeline.py mece
 #    or see .claude/commands/export-dashboard.md for the spec.
 ```
 
-Shortcut: `python pipeline.py run [--limit N]` chains **ingest → download → transcribe → extract** in one command. Run `queues` and `mece` separately after.
+Shortcut: `python pipeline.py run [--limit N]` chains **fetch → ingest → download → transcribe → extract** in one command. Pass `--skip-fetch` to re-run later stages without hitting the Ziwo API again. Run `queues` and `mece` separately after.
 
 All stages are **resumable and idempotent**. Re-running skips rows already past that stage. A new day is processed by changing `ZIWO_TARGET_DATE` in `.env` and re-running from step 1 — the DB accumulates across days.
 
@@ -117,8 +118,7 @@ All stages are **resumable and idempotent**. Re-running skips rows already past 
 
 ```
 .
-├── fetch_calls.py                    Step 1: Ziwo API → CSV snapshot
-├── pipeline.py                       CLI dispatcher for all subsequent stages
+├── pipeline.py                       CLI dispatcher for all pipeline stages
 ├── .env / .env.example               Local config
 ├── requirements.txt
 ├── CLAUDE.md                         Collaboration conventions for Claude Code
@@ -129,6 +129,7 @@ All stages are **resumable and idempotent**. Re-running skips rows already past 
 ├── ziwo/                             Reusable package
 │   ├── config.py                     Env loading + project paths
 │   ├── db.py                         SQLite schema, migration, helpers
+│   ├── fetch.py                      Ziwo API → CSV snapshot (step 1)
 │   ├── ingest.py                     CSV → SQLite (filters talk_time < MIN_TALK_TIME)
 │   ├── download.py                   Ziwo recording → local .mp3
 │   ├── transcribe.py                 .mp3 → English speaker-labeled transcript (Gemini translates on the fly)
@@ -149,7 +150,7 @@ All stages are **resumable and idempotent**. Re-running skips rows already past 
 └── data/                             Local data (add to .gitignore when repo is created)
     ├── calls.db                      SQLite source of truth
     ├── audio/                        Downloaded .mp3 files
-    └── exports/                      CSV snapshots from fetch_calls.py
+    └── exports/                      CSV snapshots from the fetch stage
 ```
 
 ## Data model
