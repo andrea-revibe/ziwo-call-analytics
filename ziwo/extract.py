@@ -1,7 +1,7 @@
 """LLM feature extraction: summary, intent, theme, sentiment, resolution."""
 
 from datetime import datetime
-from typing import Literal
+from typing import Literal, Optional
 
 from google import genai
 from google.genai import types
@@ -33,6 +33,16 @@ SENTIMENTS = Literal[
     "Inquisitive",
     "Satisfied",
     "Angry",
+]
+
+RESOLUTIONS = Literal["Yes", "Partial", "No"]
+
+PARTIAL_REASONS = Literal[
+    "callback_promised",
+    "vague_guidance",
+    "system_or_knowledge_gap",
+    "customer_action_required",
+    "handoff_to_other_team",
 ]
 
 THEMES = Literal[
@@ -91,7 +101,8 @@ class Extraction(BaseModel):
     intent_qualifier: str
     qualifier_theme: THEMES
     sentiment: SENTIMENTS
-    resolution: Literal["Yes", "No"]
+    resolution: RESOLUTIONS
+    partial_reason: Optional[PARTIAL_REASONS] = None
     escalation_requested: bool
 
 
@@ -99,7 +110,7 @@ PROMPT = """You are analyzing a transcript of an inbound customer-support phone 
 
 The transcript is in the original spoken language (typically Egyptian Arabic, sometimes with English code-switching). Speakers are labeled "Agent:" and "Customer:".
 
-Extract eight fields. ALL RETURNED VALUES MUST BE IN ENGLISH regardless of the transcript language.
+Extract nine fields. ALL RETURNED VALUES MUST BE IN ENGLISH regardless of the transcript language.
 
 1) call_summary — 2 sentences maximum. Describe what the customer called about AND the outcome of the call (resolved, escalated, callback promised, hung up, etc.). Neutral tone, factual. Do NOT quote the customer directly. Example: "Customer confused by QuickUp tracking status reading 'Order Cancelled' on a non-cancelled order. Agent clarified that this reflects a shipping provider state and customer accepted the explanation."
 
@@ -130,12 +141,25 @@ Extract eight fields. ALL RETURNED VALUES MUST BE IN ENGLISH regardless of the t
 6) sentiment — the customer's overall emotional state across the call. Pick EXACTLY ONE from:
    Frustrated, Neutral, Inquisitive, Satisfied, Angry
 
-7) resolution — did the agent resolve the caller's need on THIS call?
-   - "Yes" if the customer confirmed the solution, expressed satisfaction, or had no further questions after a clear resolution.
-   - "No" if the customer requested a supervisor, was promised a callback, was transferred multiple times, hung up before resolution, or the agent could not provide an answer on the call.
-   A promised callback counts as "No" — the issue was not resolved on this call.
+7) resolution — did the agent deliver a definitive outcome on THIS call? This measures information/action finality, NOT customer happiness. Pick EXACTLY ONE:
+   - "Yes" — a final answer or action was delivered. This includes:
+     · Explicit confirmation — customer confirms the need was met or has no further questions.
+     · Firm policy decision — agent gives a final, policy-grounded answer (e.g., "we cannot waive this fee per our Terms"). Customer disagreement does NOT change this.
+     · Specific status update — concrete verified data given (e.g., "courier confirms delivery Friday 5 PM", "payment cleared at 10 AM").
+     · Intra-session success — inquiry closed on this call, including after internal transfers or immediate supervisor intervention.
+     · Resolved but escalated — a final answer WAS given AND the customer still demanded a manager. Mark "Yes" and capture the demand via escalation_requested.
+     · Pure information request answered with specifics (store hours, return policy, specific tracking state).
+   - "Partial" — agent engaged with the inquiry but it is NOT concluded on this call; work remains. Always set partial_reason when using "Partial".
+   - "No" — the call ended with no useful outcome at all: technical disconnect, customer hung up during hold, customer gave up waiting ("I'll call back later"), or agent never meaningfully engaged with the inquiry.
 
-8) escalation_requested — boolean (true/false). True if the customer EXPLICITLY asks for a supervisor, manager, team lead, or any higher authority during the call. False otherwise. This is orthogonal to topic — a refund call where the customer demands a supervisor sets escalation_requested=true while keeping intent_action="Refund".
+8) partial_reason — REQUIRED when resolution="Partial", otherwise null. Pick EXACTLY ONE:
+   - "callback_promised" — agent or back-office will follow up later (return call, email, ticket).
+   - "vague_guidance" — agent only gave a range or generic statement (e.g., "3–5 business days", "the team is working on it") with no concrete commitment.
+   - "system_or_knowledge_gap" — agent/supervisor could not answer due to system outage, lack of access, or insufficient knowledge, AND did not commit to a specific callback.
+   - "customer_action_required" — agent's side is complete but the customer must do something to finalize (click a verification link, visit the warehouse with ID, reply to an email, etc.).
+   - "handoff_to_other_team" — customer was routed to another team/channel and the current leg ended without resolution here.
+
+9) escalation_requested — boolean (true/false). True if the customer EXPLICITLY asks for a supervisor, manager, team lead, or any higher authority during the call. False otherwise. This is orthogonal to topic — a refund call where the customer demands a supervisor sets escalation_requested=true while keeping intent_action="Refund".
 
 Base your judgment ONLY on what is in the transcript below. Do not use outside context, do not infer from queue metadata.
 
@@ -195,6 +219,7 @@ def extract_transcribed(limit: int | None = None) -> tuple[int, int]:
                     qualifier_theme=parsed.qualifier_theme,
                     sentiment=parsed.sentiment,
                     resolution=parsed.resolution,
+                    partial_reason=parsed.partial_reason,
                     escalation_requested=int(parsed.escalation_requested),
                     extracted_at=datetime.utcnow().isoformat(timespec="seconds"),
                     error_message=None,

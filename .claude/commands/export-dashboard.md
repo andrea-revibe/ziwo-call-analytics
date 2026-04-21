@@ -13,7 +13,7 @@ Columns (order matters — match exactly):
 - `call_id` (= `id`), `started_at`, `duration`, `talk_time`, `ring_time`, `queue_name`, `agent_id`, `agent_cc_login`, `agent_first_name`, `agent_last_name`, `caller_id_number`
 - `transcript_language`
 - `call_summary`, `intent_action`, `intent_object`, `intent_qualifier`, `qualifier_theme`
-- `sentiment`, `resolution`, `escalation_requested`
+- `sentiment`, `resolution`, `partial_reason`, `escalation_requested`
 - `object_bucket`, `category`, `subcategory`, `friction_score`
 - `country`, `language`, `queue_intent`, `queue_matches_category`, `order_number`
 - `transcript` (always included — the dashboard needs it)

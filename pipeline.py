@@ -108,7 +108,10 @@ def cmd_show(args: argparse.Namespace) -> None:
         )
         print(f"Theme:      {row['qualifier_theme']}")
         print(f"Sentiment:  {row['sentiment']}")
-        print(f"Resolution: {row['resolution']}")
+        res_line = row['resolution']
+        if row['resolution'] == 'Partial' and row['partial_reason']:
+            res_line = f"{res_line} ({row['partial_reason']})"
+        print(f"Resolution: {res_line}")
     if row["transcript"]:
         print("\n--- Transcript ---")
         print(row["transcript"])

@@ -91,12 +91,18 @@ Sentiment is judged from the transcript text only. **Note:** audio-native sentim
 
 ### Call Resolution
 
-A Yes/No judgment on whether the agent resolved the caller's need by the end of the call:
+A three-tier judgment of **information/action finality** — did the agent deliver a definitive outcome on this call? Deliberately not a measure of customer happiness; a call can be `Yes` with a frustrated customer (firm policy denial) and `No` with a calm one (disconnect during hold).
 
-- **Yes** — customer confirmed the answer or solution, expressed satisfaction, or had no further questions after a clear resolution was provided
-- **No** — customer requested a supervisor, was promised a callback, was transferred multiple times, hung up before resolution, or the agent could not provide an answer on the call
+- **Yes** — a final answer or action was delivered. Covers explicit confirmation, firm policy decisions ("the firm no"), specific status updates with concrete data, intra-session success (including after transfers or supervisor intervention), and "resolved but escalated" cases where a final answer was given even though the customer demanded a manager.
+- **Partial** — agent engaged with the inquiry but it is not concluded on this call; work remains. Always paired with `partial_reason` (closed enum):
+  - `callback_promised` — agent/back-office will follow up later (return call, email, ticket).
+  - `vague_guidance` — agent gave only a range or generic statement (e.g., "3–5 business days") with no concrete commitment.
+  - `system_or_knowledge_gap` — agent/supervisor could not answer due to system outage, access, or knowledge, and did not commit to a callback.
+  - `customer_action_required` — agent's side is complete but the customer must still act (click a link, visit a warehouse, reply to an email).
+  - `handoff_to_other_team` — routed to another team/channel; this leg ended without resolution.
+- **No** — the call ended with no useful outcome: technical disconnect, customer hung up during hold, customer gave up waiting, or agent never meaningfully engaged.
 
-Nuance: a promised callback counts as **No** — the issue was not resolved on *this* call. This mirrors the chatbot pipeline's principle of not counting automatic or deferred outcomes as customer-confirmed successes.
+Rationale for the Partial tier: stakeholders consuming the prior binary signal overestimated unresolved rate because "firm policy no" and "specific status update" calls were being marked `No`. The information-finality framing makes those `Yes`, and the new `Partial` tier captures operational debt (callbacks, vague answers, system gaps) as a distinct signal the dashboard can act on separately from catastrophic drops (`No`).
 
 ### Escalation Requested
 
@@ -197,7 +203,7 @@ Signals that apply across every category, used as dashboard filters and friction
 
 | Flag | Source | Meaning |
 | --- | --- | --- |
-| `friction_score` (0–2) | Deterministic: sentiment + resolution | Existing, unchanged |
+| `friction_score` (0–3) | Deterministic: sentiment + resolution | Scale expanded for three-tier resolution |
 | `escalation_requested` (bool) | LLM extraction | Customer explicitly asked for supervisor/manager |
 | `is_complaint` (derived) | `sentiment ∈ {Frustrated, Angry}` | No new column; derived on the dashboard |
 
@@ -205,14 +211,14 @@ Register flags are intentionally orthogonal to category. A refund call that incl
 
 ### Friction Score
 
-Each call receives a friction score (0–2) based on two independent signals — the same structure as the chatbot pipeline, for channel comparability:
+Each call receives a friction score (0–3) from two independent signals:
 
-| Component   | +1 point if                                       |
-| ----------- | ------------------------------------------------- |
-| Sentiment   | Customer sentiment is **Frustrated** or **Angry** |
-| Unresolved  | Call resolution is **No**                         |
+| Component   | Contribution                                                       |
+| ----------- | ------------------------------------------------------------------ |
+| Sentiment   | +1 if sentiment is **Frustrated** or **Angry**                     |
+| Resolution  | +0 if **Yes**, +1 if **Partial**, +2 if **No**                     |
 
-A score of **0** means the customer was calm and the agent handled it. A score of **2** means the customer was upset *and* the call was not resolved. Sorting subcategories by **average friction score** (primary) and **call volume** (secondary) surfaces the highest-pain, highest-impact areas — the strongest candidates for improvement projects.
+A score of **0** means the customer was calm and the agent delivered a definitive outcome. A score of **3** means the customer was upset *and* the call ended with nothing useful delivered. The Partial tier deliberately sits between — a calm customer with an open ticket is +1, not +2, and is ranked below a true drop. Sorting subcategories by **average friction score** (primary) and **call volume** (secondary) surfaces the highest-pain, highest-impact areas.
 
 **Structured metadata signals deliberately excluded from the core score**, available as dashboard filters:
 
@@ -289,11 +295,12 @@ Each call produces one row with the following columns, exported to CSV and loade
 | `intent_action`, `intent_object`, `intent_qualifier`         | Stage 2 — LLM                     |
 | `qualifier_theme`                                            | Stage 2 — LLM                     |
 | `sentiment`                                                  | Stage 2 — LLM                     |
-| `resolution` (Yes/No)                                        | Stage 2 — LLM                     |
+| `resolution` (Yes/Partial/No)                                | Stage 2 — LLM                     |
+| `partial_reason` (nullable enum, set only when resolution=Partial) | Stage 2 — LLM                |
 | `escalation_requested` (bool)                                | Stage 2 — LLM                     |
 | `object_bucket`                                              | Stage 3 — deterministic normalization of `intent_object` |
 | `category`, `subcategory`                                    | Stage 3 — deterministic mapping   |
-| `friction_score` (0–2)                                       | Stage 3 — deterministic           |
+| `friction_score` (0–3)                                       | Stage 3 — deterministic           |
 | `country`, `language`, `queue_intent`, `queue_matches_category` | Stage 4 — deterministic parsing of `queue_name` |
 
 The dashboard's primary views:
