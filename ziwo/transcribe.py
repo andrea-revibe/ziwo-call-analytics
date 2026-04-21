@@ -42,19 +42,19 @@ def clean_transcript(text: str) -> str:
     return text
 
 
-PROMPT = """You are a faithful transcriber of a customer-support phone call.
+PROMPT = """You are a faithful transcriber and translator of a customer-support phone call.
 
-Transcribe the audio verbatim. Preserve the language(s) actually spoken (typically Egyptian Arabic, sometimes with English code-switching). Do NOT translate. Do NOT summarize. Do NOT add content that is not in the audio.
+The audio is typically in Egyptian Arabic, sometimes with English code-switching. Translate everything spoken into natural, fluent English. Preserve meaning, tone, and any proper nouns (names, brands, product names, cities). Do NOT summarize. Do NOT add content that is not in the audio. If a turn is unintelligible, write "[unintelligible]".
 
 Label each turn with "Agent:" or "Customer:" at the start of a new line. Use your best judgement based on context (who greets, who asks questions, who describes a problem). If genuinely unsure for a turn, use "Speaker:".
 
 Transcript format (plain text — no markdown, no JSON, no code fences):
-Agent: <what the agent said>
-Customer: <what the customer said>
+Agent: <English translation of what the agent said>
+Customer: <English translation of what the customer said>
 Agent: ...
 Customer: ...
 
-After the transcript, append one separator line and one language line:
+After the transcript, append one separator line and one language line reporting the SOURCE language actually spoken in the audio:
 ---
 Language: <ar | ar-en | en | other>
 """

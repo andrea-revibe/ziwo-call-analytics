@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS calls (
     transcript TEXT,
     transcript_language TEXT,
     transcribed_at TEXT,
+    transcript_translated_at TEXT,
     error_message TEXT,
 
     intent_action TEXT,
@@ -59,6 +60,7 @@ CREATE INDEX IF NOT EXISTS idx_calls_status ON calls(status);
 """
 
 EXTENSION_COLUMNS = {
+    "transcript_translated_at": "TEXT",
     "intent_action": "TEXT",
     "intent_object": "TEXT",
     "intent_qualifier": "TEXT",

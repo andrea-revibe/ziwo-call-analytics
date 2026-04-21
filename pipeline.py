@@ -17,7 +17,7 @@ from ziwo.config import EXPORTS_DIR, TARGET_DATE
 from ziwo.db import connect, init_db, status_counts
 from ziwo.download import download_pending
 from ziwo.extract import extract_transcribed
-from ziwo.ingest import ingest_csv
+from ziwo.ingest import MIN_TALK_TIME, ingest_csv
 from ziwo.mece import classify_mece
 from ziwo.queues import classify_queues
 from ziwo.transcribe import transcribe_downloaded
@@ -31,8 +31,11 @@ def cmd_ingest(args: argparse.Namespace) -> None:
     csv_path = Path(args.csv) if args.csv else _default_csv()
     if not csv_path.exists():
         raise SystemExit(f"CSV not found: {csv_path}")
-    n = ingest_csv(csv_path)
-    print(f"Ingested {n} new rows from {csv_path}")
+    inserted, excluded_short = ingest_csv(csv_path)
+    print(
+        f"Ingested {inserted} new rows, skipped {excluded_short} short calls "
+        f"(<{MIN_TALK_TIME}s talk_time) from {csv_path}"
+    )
 
 
 def cmd_download(args: argparse.Namespace) -> None:
@@ -63,8 +66,11 @@ def cmd_mece(_args: argparse.Namespace) -> None:
 def cmd_run(args: argparse.Namespace) -> None:
     csv_path = _default_csv()
     if csv_path.exists():
-        n = ingest_csv(csv_path)
-        print(f"Ingested {n} new rows from {csv_path}")
+        inserted, excluded_short = ingest_csv(csv_path)
+        print(
+            f"Ingested {inserted} new rows, skipped {excluded_short} short calls "
+            f"(<{MIN_TALK_TIME}s talk_time) from {csv_path}"
+        )
     d_done, d_failed = download_pending(limit=args.limit)
     print(f"Downloaded {d_done} mp3s, {d_failed} failed.")
     t_done, t_failed = transcribe_downloaded(limit=args.limit)
