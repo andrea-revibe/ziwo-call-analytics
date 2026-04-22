@@ -145,7 +145,8 @@ All stages are **resumable and idempotent**. Re-running skips rows already past 
 ├── scripts/                          One-shot backfills (safe to re-run; use --dry-run first)
 │   ├── clean_transcripts.py          Strip filler tags from existing transcripts
 │   ├── translate_transcripts.py      Text-to-text translate non-English transcripts to English
-│   └── delete_short_calls.py         Hard-delete rows with talk_time < MIN_TALK_TIME + their .mp3 files
+│   ├── delete_short_calls.py         Hard-delete rows with talk_time < MIN_TALK_TIME + their .mp3 files
+│   └── reset_looped_transcripts.py   Reset Gemini output-token-looped transcripts for re-transcription
 ├── .claude/commands/                 Project-specific Claude Code slash commands
 │   ├── backfill-extraction.md        Reset + re-extract after a prompt change
 │   ├── sample-bucket.md              Pull 3–5 sample calls from a theme/category
