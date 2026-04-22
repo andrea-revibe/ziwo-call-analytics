@@ -9,7 +9,8 @@ Backend pipeline: ingests Ziwo inbound calls → transcribes (Gemini) → extrac
 Resumable per-call state machine in `data/calls.db`:
 `pending → downloaded → transcribed → extracted → classified` (+ `failed` branch).
 - **Ingest filter**: calls with `talk_time < 45` are skipped at ingest (threshold = `MIN_TALK_TIME` in `ziwo/ingest.py`); the `ingest` command prints both the inserted count and the excluded-short count.
-- **Transcription** produces **English translations** (prompt in `transcribe.py`), regardless of the spoken language. The source language is recorded in `transcript_language` (`ar | ar-en | en | other`). Includes automatic cleanup of filler tags (repeated `[Music]`, `[Noise]`, etc.) via `clean_transcript()`.
+- **Transcription** produces **English translations** (prompt in `transcribe.py`), regardless of the spoken language. The source language is recorded in `transcript_language` (`ar | ar-en | en | other`). Includes automatic cleanup of filler tags (repeated `[Music]`, `[Noise]`, etc.) and consecutive identical speaker lines via `clean_transcript()`.
+- **Transcribe loop guard** (`transcribe.py`): Gemini output is capped at `MAX_OUTPUT_TOKENS=20_000`, and `_looks_degenerate()` rejects truncated/looped output (MAX_TOKENS finish_reason, >20 consecutive identical lines, or oversize transcript without the `---\nLanguage:` trailer). Rejected rows stay at `downloaded` for 1 retry via the `transcribe_attempts` counter (`MAX_TRANSCRIBE_ATTEMPTS=2`), then hard-fail with `error_message` starting `transcribe: degenerate output — …`.
 - **Enrich step** (`ziwo/enrich.py`) runs deterministic post-extract passes on `extracted` rows: queue parsing (`queues.py`: `country/language/queue_intent` + order lookup) then MECE classification (`mece.py`: `object_bucket/category/subcategory/friction_score/queue_matches_category`), advancing status to `classified`. Scoped to `extracted` only — never re-runs on already-classified rows.
 - **Order lookup** (`queues.py`): matches `caller_id_number` to customer orders in the Revibe MySQL production DB. Both sides are normalised to the rightmost 9 digits. Orders older than 60 days before the call date are excluded. Multiple matches are stored comma-separated as `order_number (date), ...`. Runs inside the enrich step; skipped gracefully if MySQL is not configured.
 - **Export step** (`ziwo/export.py`) writes `calls_<date>.csv` for the dashboard from `classified` rows matching the target date, and regenerates `index.json`. Not part of `run` — invoke manually via `python pipeline.py export`.
@@ -32,6 +33,7 @@ Resumable per-call state machine in `data/calls.db`:
 | Transcript filler backfill | `scripts/clean_transcripts.py`     |
 | Transcript translate backfill | `scripts/translate_transcripts.py` |
 | Short-call delete backfill | `scripts/delete_short_calls.py`    |
+| Looped-transcript reset backfill | `scripts/reset_looped_transcripts.py` |
 | Throwaway analysis       | `scratch/` (not the repo root)       |
 
 ## Rules
@@ -55,4 +57,5 @@ Resumable per-call state machine in `data/calls.db`:
 - **Transcript backfill cleanup**: `python scripts/clean_transcripts.py [--dry-run]` — one-shot script to clean filler tags from existing transcripts. Safe to re-run (idempotent).
 - **Transcript translate backfill**: `python scripts/translate_transcripts.py [--dry-run] [--limit N] [--call-id ID]` — text-to-text translate of non-English transcripts into English. Overwrites `transcript` in place; marks `transcript_translated_at` so re-runs skip translated rows.
 - **Short-call delete backfill**: `python scripts/delete_short_calls.py [--dry-run]` — hard-deletes rows with `talk_time < MIN_TALK_TIME` and their `.mp3` files. Destructive; confirm via `--dry-run` first.
+- **Looped-transcript reset backfill**: `python scripts/reset_looped_transcripts.py [--dry-run]` — nulls transcript + all downstream extract/enrich columns on rows whose stored transcript is a Gemini output-token loop (empty `transcript_language` + `length(transcript) > 30000`), resets them to `downloaded` with `transcribe_attempts=0`. Audio files are preserved; re-run `pipeline.py run --skip-fetch` after.
 - **Cutover history** for significant pipeline changes (prompt versions, filter thresholds, schema deltas) is logged in `docs/transcript-analysis-methodology.md` → "Appendix: Pipeline cutover history". Update it whenever a change creates a discontinuity in the corpus.
