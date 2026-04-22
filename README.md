@@ -45,16 +45,21 @@ The pipeline is a **resumable per-call state machine** persisted in `data/calls.
               │
               ▼  Gemini extract (ziwo/extract.py)
    ┌─────────────────────┐
-   │      extracted      │  ← final status for successfully processed rows
+   │      extracted      │
    └──────────┬──────────┘
               │
-              ▼  deterministic post-passes (no LLM):
-                 • ziwo/queues.py → country, language, queue_intent
-                 • ziwo/mece.py   → category, subcategory, friction_score,
-                                    queue_matches_category
+              ▼  enrich step (no LLM; ziwo/enrich.py):
+                 • ziwo/queues.py → country, language, queue_intent,
+                                    order_number (MySQL lookup)
+                 • ziwo/mece.py   → object_bucket, category, subcategory,
+                                    friction_score, queue_matches_category
+   ┌─────────────────────┐
+   │     classified      │  ← final status for successfully processed rows
+   └──────────┬──────────┘
               │
-              ▼
-       [CSV export to ~/Desktop/ziwo-dashboard/data/]
+              ▼  pipeline.py export (manual; ziwo/export.py)
+       [CSV to ~/Desktop/ziwo-dashboard/data/calls_<date>.csv
+        + index.json manifest regenerated]
 ```
 
 Any stage can hit the `failed` branch; see **Troubleshooting** below for recovery.
@@ -101,16 +106,15 @@ python pipeline.py download
 python pipeline.py transcribe
 python pipeline.py extract
 
-# 5. Deterministic post-passes (cheap, no LLM).
-python pipeline.py queues
-python pipeline.py mece
+# 5. Enrich (queues + MECE passes; advances status 'extracted' → 'classified').
+python pipeline.py enrich
 
-# 6. Export the dashboard CSV.
-#    Run the /export-dashboard slash command inside Claude Code,
-#    or see .claude/commands/export-dashboard.md for the spec.
+# 6. Export the dashboard CSV + regenerate index.json manifest.
+python pipeline.py export              # uses ZIWO_TARGET_DATE
+python pipeline.py export --date 2026-04-14   # or an explicit date
 ```
 
-Shortcut: `python pipeline.py run [--limit N]` chains **fetch → ingest → download → transcribe → extract** in one command. Pass `--skip-fetch` to re-run later stages without hitting the Ziwo API again. Run `queues` and `mece` separately after.
+Shortcut: `python pipeline.py run [--limit N]` chains **fetch → ingest → download → transcribe → extract → enrich** in one command. Pass `--skip-fetch` to re-run later stages without hitting the Ziwo API again. `export` stays manual — run it when you're ready to publish a day's CSV to the dashboard.
 
 All stages are **resumable and idempotent**. Re-running skips rows already past that stage. A new day is processed by changing `ZIWO_TARGET_DATE` in `.env` and re-running from step 1 — the DB accumulates across days.
 
@@ -134,8 +138,10 @@ All stages are **resumable and idempotent**. Re-running skips rows already past 
 │   ├── download.py                   Ziwo recording → local .mp3
 │   ├── transcribe.py                 .mp3 → English speaker-labeled transcript (Gemini translates on the fly)
 │   ├── extract.py                    Transcript → structured features (Gemini, Pydantic)
-│   ├── queues.py                     queue_name → country/language/queue_intent
-│   └── mece.py                       Deterministic MECE taxonomy + friction score
+│   ├── queues.py                     queue_name → country/language/queue_intent + MySQL order lookup
+│   ├── mece.py                       Deterministic MECE taxonomy + friction score
+│   ├── enrich.py                     Post-extract step: queues + mece; advances status to 'classified'
+│   └── export.py                     Dashboard CSV writer + index.json manifest
 ├── scripts/                          One-shot backfills (safe to re-run; use --dry-run first)
 │   ├── clean_transcripts.py          Strip filler tags from existing transcripts
 │   ├── translate_transcripts.py      Text-to-text translate non-English transcripts to English
@@ -144,7 +150,6 @@ All stages are **resumable and idempotent**. Re-running skips rows already past 
 │   ├── backfill-extraction.md        Reset + re-extract after a prompt change
 │   ├── sample-bucket.md              Pull 3–5 sample calls from a theme/category
 │   ├── taxonomy-audit.md             Distribution report (themes, friction, queues)
-│   ├── export-dashboard.md           Write CSV to ~/Desktop/ziwo-dashboard/data/
 │   └── snapshot-taxonomy.md          Timestamped snapshot for iteration diffing
 ├── scratch/                          Throwaway analysis, snapshots, one-offs
 └── data/                             Local data (add to .gitignore when repo is created)
@@ -188,7 +193,7 @@ Reset the row to retry a stage:
 # Retry download: set status back to 'pending' and clear the error
 sqlite3 data/calls.db "UPDATE calls SET status='pending', error_message=NULL WHERE id=<call_id>;"
 
-# Retry transcribe / extract similarly, setting status to 'downloaded' / 'transcribed'.
+# Retry transcribe / extract / enrich similarly, setting status to 'downloaded' / 'transcribed' / 'extracted'.
 ```
 
 **Re-extracting after a prompt change.** Use the `/backfill-extraction` slash command — it snapshots old values, resets status, re-runs, and prints a per-field diff.
@@ -198,5 +203,5 @@ sqlite3 data/calls.db "UPDATE calls SET status='pending', error_message=NULL WHE
 **Inspecting the DB.** Always truncate transcript-bearing columns in exploratory queries:
 
 ```bash
-sqlite3 data/calls.db "SELECT id, intent_action, qualifier_theme, substr(call_summary,1,120) FROM calls WHERE status='extracted' LIMIT 5;"
+sqlite3 data/calls.db "SELECT id, intent_action, qualifier_theme, substr(call_summary,1,120) FROM calls WHERE status='classified' LIMIT 5;"
 ```
