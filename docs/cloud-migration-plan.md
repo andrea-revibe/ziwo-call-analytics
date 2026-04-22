@@ -62,8 +62,8 @@ These constraints let us keep the architecture simple; the only production harde
 │         │  download mp3 ──────────────────────────────────┐      │
 │         │  transcribe (Gemini)                            │      │
 │         │  extract (Gemini)  ┌──────────────────┐         │      │
-│         │  queues (MySQL) ◀──│ Revibe MySQL     │         │      │
-│         │  mece              └──────────────────┘         │      │
+│         │  enrich ◀──────────│ Revibe MySQL     │         │      │
+│         │   (queues+mece)    └──────────────────┘         │      │
 │         │  push_sheets ──────────────┐                    │      │
 │         │  report ─────────────┐     │                    │      │
 │         ▼                      │     │                    │      │
@@ -110,7 +110,7 @@ def download_mp3(call_id: str, local_path: Path) -> None:
 ```python
 def push_unpushed_rows(conn, spreadsheet_id: str, sheet_name: str) -> int:
     """
-    Select rows where pushed_to_sheet_at IS NULL and status = 'mece_done'.
+    Select rows where pushed_to_sheet_at IS NULL and status = 'classified'.
     Append to sheet via Sheets API.
     Mark pushed_to_sheet_at = now() on success.
     Returns number of rows pushed.
@@ -126,7 +126,7 @@ During the 3-day parallel window, the cloud pipeline writes to a *second tab* (e
 Sends a per-run email with:
 
 - Date processed.
-- Counts: calls ingested, with audio, downloaded, transcribed, extracted, queues resolved, mece classified, pushed to sheet, failed.
+- Counts: calls ingested, with audio, downloaded, transcribed, extracted, classified (enriched), pushed to sheet, failed.
 - Top 3 failure reasons (from `error_message`).
 - Sanity checks: any step where `count < expected` (e.g. extracted < downloaded by >10%).
 - Dashboard link.
@@ -138,7 +138,7 @@ SMTP via Gmail app password (simplest). Recipients list from env var.
 Confirm (and fix if needed) that `run` with no `--date` arg defaults to **yesterday in the VM's configured timezone**. Add `push_sheets` and `report` as final steps:
 
 ```
-run = ingest → download → transcribe → extract → queues → mece → push_sheets → report
+run = ingest → download → transcribe → extract → enrich → push_sheets → report
 ```
 
 **Catch-up logic:** if the VM was down or the pipeline failed, the next morning's run should heal itself. Before defaulting to "yesterday," the cron-invoked entrypoint should check the last N=7 days and process any date where `COUNT(calls WHERE call_date=X) = 0` **or** where `COUNT(calls WHERE call_date=X AND pushed_to_sheet_at IS NULL) > 0`. Process missing dates oldest-first, then finish with yesterday. Bounded to 7 days to prevent a month-long outage from melting the Gemini budget in one go — anything older surfaces in the report and requires a manual `--date` invocation.

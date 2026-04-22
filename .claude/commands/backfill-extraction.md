@@ -19,6 +19,6 @@ Steps:
    WHERE <scope>;
    ```
 5. Run `python pipeline.py extract` (with `--limit` if scoped).
-6. Run `python pipeline.py mece` to refresh category/subcategory/friction from the new themes.
+6. Run `python pipeline.py enrich` to re-run the queues + mece passes and advance the reset rows from `extracted` back to `classified`. (Note: the enrich step will re-do the MySQL order lookup for these rows, which is the intended behavior for a prompt-change backfill.)
 7. Print a diff table: per field (`intent_action`, `qualifier_theme`, `sentiment`, `resolution`, `partial_reason`), count of rows whose value changed vs the snapshot CSV.
 8. Remind the user to spot-check with `/sample-bucket` on the theme with the most changes.
