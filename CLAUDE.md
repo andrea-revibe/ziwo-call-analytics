@@ -7,11 +7,12 @@ Backend pipeline: ingests Ziwo inbound calls → transcribes (Gemini) → extrac
 ## Pipeline
 
 Resumable per-call state machine in `data/calls.db`:
-`pending → downloaded → transcribed → extracted` (+ `failed` branch).
+`pending → downloaded → transcribed → extracted → classified` (+ `failed` branch).
 - **Ingest filter**: calls with `talk_time < 45` are skipped at ingest (threshold = `MIN_TALK_TIME` in `ziwo/ingest.py`); the `ingest` command prints both the inserted count and the excluded-short count.
 - **Transcription** produces **English translations** (prompt in `transcribe.py`), regardless of the spoken language. The source language is recorded in `transcript_language` (`ar | ar-en | en | other`). Includes automatic cleanup of filler tags (repeated `[Music]`, `[Noise]`, etc.) via `clean_transcript()`.
-- Deterministic post-extract passes populate `country/language/queue_intent` (`queues.py`) and `category/subcategory/friction_score/queue_matches_category` (`mece.py`).
-- **Order lookup** (`queues.py`): matches `caller_id_number` to customer orders in the Revibe MySQL production DB. Both sides are normalised to the rightmost 9 digits. Orders older than 60 days before the call date are excluded. Multiple matches are stored comma-separated as `order_number (date), ...`. Runs during the `queues` step; skipped gracefully if MySQL is not configured.
+- **Enrich step** (`ziwo/enrich.py`) runs deterministic post-extract passes on `extracted` rows: queue parsing (`queues.py`: `country/language/queue_intent` + order lookup) then MECE classification (`mece.py`: `object_bucket/category/subcategory/friction_score/queue_matches_category`), advancing status to `classified`. Scoped to `extracted` only — never re-runs on already-classified rows.
+- **Order lookup** (`queues.py`): matches `caller_id_number` to customer orders in the Revibe MySQL production DB. Both sides are normalised to the rightmost 9 digits. Orders older than 60 days before the call date are excluded. Multiple matches are stored comma-separated as `order_number (date), ...`. Runs inside the enrich step; skipped gracefully if MySQL is not configured.
+- **Export step** (`ziwo/export.py`) writes `calls_<date>.csv` for the dashboard from `classified` rows matching the target date, and regenerates `index.json`. Not part of `run` — invoke manually via `python pipeline.py export`.
 
 ## Where things live
 
@@ -23,6 +24,8 @@ Resumable per-call state machine in `data/calls.db`:
 | Extraction (Gemini)      | `ziwo/extract.py`                    |
 | Queue parsing + orders   | `ziwo/queues.py`                     |
 | MECE mapping + friction  | `ziwo/mece.py`                       |
+| Post-extract enrich      | `ziwo/enrich.py`                     |
+| Dashboard export + manifest | `ziwo/export.py`                  |
 | Methodology (spec)       | `docs/transcript-analysis-methodology.md` |
 | Dashboard CSV output     | `~/Desktop/ziwo-dashboard/data/`     |
 | Transcript cleanup       | `ziwo/transcribe.py` (`clean_transcript()`) |
@@ -45,10 +48,10 @@ Resumable per-call state machine in `data/calls.db`:
 ## Operational
 
 - Activate venv first: `source .venv/bin/activate`
-- Subcommands: `python pipeline.py {fetch|ingest|download|transcribe|extract|queues|mece|status|show|run}`. `run` chains `fetch → ingest → download → transcribe → extract`; pass `--skip-fetch` to skip the Ziwo API call and reuse the CSV already on disk.
+- Subcommands: `python pipeline.py {fetch|ingest|download|transcribe|extract|enrich|export|status|show|run}`. `run` chains `fetch → ingest → download → transcribe → extract → enrich`; pass `--skip-fetch` to skip the Ziwo API call and reuse the CSV already on disk. `export` is manual — takes an optional `--date YYYY-MM-DD` (defaults to `TARGET_DATE`).
 - **LLM concurrency**: `transcribe` and `extract` steps run Gemini calls in parallel, tuned independently via `TRANSCRIBE_CONCURRENCY` and `EXTRACT_CONCURRENCY` in `.env` (default 10 each). DB writes stay single-threaded. Rate-limit / 5xx errors are non-fatal — affected calls stay at their pre-step status (`downloaded` / `transcribed`) for the next run to pick up.
 - DB inspect: `sqlite3 data/calls.db "..."` — truncate transcript-bearing columns with `substr(call_summary,1,120)` etc. Never `SELECT *`.
-- **MySQL order lookup** requires `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_DATABASE` in `.env`. Queries `orders` + `order_customers` tables. If not configured, `queues` step still runs without order linkage.
+- **MySQL order lookup** requires `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_DATABASE` in `.env`. Queries `orders` + `order_customers` tables. If not configured, `enrich` step still runs without order linkage.
 - **Transcript backfill cleanup**: `python scripts/clean_transcripts.py [--dry-run]` — one-shot script to clean filler tags from existing transcripts. Safe to re-run (idempotent).
 - **Transcript translate backfill**: `python scripts/translate_transcripts.py [--dry-run] [--limit N] [--call-id ID]` — text-to-text translate of non-English transcripts into English. Overwrites `transcript` in place; marks `transcript_translated_at` so re-runs skip translated rows.
 - **Short-call delete backfill**: `python scripts/delete_short_calls.py [--dry-run]` — hard-deletes rows with `talk_time < MIN_TALK_TIME` and their `.mp3` files. Destructive; confirm via `--dry-run` first.
