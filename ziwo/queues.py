@@ -178,10 +178,11 @@ def _lookup_orders(
 
 
 def classify_queues() -> int:
-    """Populate country/language/queue_intent and order_number for every call row. Idempotent."""
+    """Populate country/language/queue_intent and order_number for extracted rows."""
     with connect() as conn:
         rows = conn.execute(
-            "SELECT id, queue_name, caller_id_number, started_at FROM calls"
+            "SELECT id, queue_name, caller_id_number, started_at FROM calls "
+            "WHERE status = 'extracted'"
         ).fetchall()
 
         # Phase 1: deterministic queue parsing (always runs)

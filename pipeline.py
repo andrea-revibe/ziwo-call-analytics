@@ -6,6 +6,8 @@ Usage:
     python pipeline.py download [--limit N]
     python pipeline.py transcribe [--limit N]
     python pipeline.py extract [--limit N]
+    python pipeline.py enrich
+    python pipeline.py export [--date YYYY-MM-DD]
     python pipeline.py run [--limit N] [--skip-fetch]
     python pipeline.py status
     python pipeline.py show <call_id>
@@ -17,11 +19,11 @@ from pathlib import Path
 from ziwo.config import EXPORTS_DIR, TARGET_DATE
 from ziwo.db import connect, init_db, status_counts
 from ziwo.download import download_pending
+from ziwo.enrich import enrich_extracted
+from ziwo.export import export_dashboard
 from ziwo.extract import extract_transcribed
 from ziwo.fetch import fetch_calls_for_date
 from ziwo.ingest import MIN_TALK_TIME, ingest_csv
-from ziwo.mece import classify_mece
-from ziwo.queues import classify_queues
 from ziwo.transcribe import transcribe_downloaded
 
 
@@ -65,14 +67,19 @@ def cmd_extract(args: argparse.Namespace) -> None:
     print(f"Extracted {done} calls, {failed} failed.")
 
 
-def cmd_queues(_args: argparse.Namespace) -> None:
-    n = classify_queues()
-    print(f"Classified {n} calls by queue (country/language/queue_intent).")
+def cmd_enrich(_args: argparse.Namespace) -> None:
+    n = enrich_extracted()
+    print(f"Enriched {n} calls (queues + mece) and advanced status to 'classified'.")
 
 
-def cmd_mece(_args: argparse.Namespace) -> None:
-    n = classify_mece()
-    print(f"Categorized {n} extracted calls (category/subcategory/friction_score).")
+def cmd_export(args: argparse.Namespace) -> None:
+    date = args.date or TARGET_DATE
+    r = export_dashboard(date)
+    print(f"[export] {r['rows']} rows -> {r['csv_path']} ({r['size_kb']} KB)")
+    print(
+        f"[manifest] {r['manifest_files']} files "
+        f"(min={r['min_date']}, max={r['max_date']})"
+    )
 
 
 def cmd_run(args: argparse.Namespace) -> None:
@@ -97,6 +104,8 @@ def cmd_run(args: argparse.Namespace) -> None:
     print(f"Transcribed {t_done} calls, {t_failed} failed.")
     e_done, e_failed = extract_transcribed(limit=args.limit)
     print(f"Extracted {e_done} calls, {e_failed} failed.")
+    n_enriched = enrich_extracted()
+    print(f"Enriched {n_enriched} calls (queues + mece) and advanced status to 'classified'.")
 
 
 def cmd_status(_args: argparse.Namespace) -> None:
@@ -166,14 +175,19 @@ def main() -> None:
     p_ex.add_argument("--limit", type=int, default=None)
     p_ex.set_defaults(func=cmd_extract)
 
-    p_q = sub.add_parser("queues", help="Parse queue_name into country/language/queue_intent")
-    p_q.set_defaults(func=cmd_queues)
+    p_en = sub.add_parser(
+        "enrich",
+        help="Post-extract: queues + mece passes; advance status 'extracted' → 'classified'",
+    )
+    p_en.set_defaults(func=cmd_enrich)
 
-    p_m = sub.add_parser("mece", help="Map extracted calls to category/subcategory + friction score")
-    p_m.set_defaults(func=cmd_mece)
+    p_exp = sub.add_parser("export", help="Export dashboard CSV + rebuild index.json")
+    p_exp.add_argument("--date", help=f"Date to export (default: {TARGET_DATE})")
+    p_exp.set_defaults(func=cmd_export)
 
     p_run = sub.add_parser(
-        "run", help="Fetch + ingest + download + transcribe + extract in order"
+        "run",
+        help="Fetch + ingest + download + transcribe + extract + enrich in order",
     )
     p_run.add_argument("--limit", type=int, default=None)
     p_run.add_argument(
