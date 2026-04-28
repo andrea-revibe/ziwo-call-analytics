@@ -142,6 +142,18 @@ Extract nine fields. Return all values in English.
    Cancellation, Order Modification, Wrong or Missing Item, Supervisor Request, Initial or Unclear Contact,
    Other
 
+   Theme disambiguation guidance (apply when choosing qualifier_theme):
+   - "Status Inquiry" — customer asks "where is my order" / "what is the current shipping state" / "when will it arrive". The call must be about the DELIVERY STATE of an existing order. Calls about product features (color, specifications, condition, compatibility, bundled accessories, country version) of an existing order do NOT belong here, even if framed as "I have an order — what color is it?". Use "Other" or the most-specific applicable theme for those.
+   - "Shipping Provider Issue" — carrier-side problem affecting delivery: lost shipment, courier coordination failure, customs clearance, address/handover issues caused by the carrier (DHL, Aramex, SMSA, Quiqup), failed pickup. NOT product-side issues, NOT order-status inquiries.
+   - "Quality Check Wait" — customer's order or warranty-repair return is sitting in Revibe's internal QC step and the customer wants to know when it will move forward. Different from "Delivery Delays" (in transit, late) and from "Status Inquiry" (delivery state).
+   - "Delivery Delays" — order is in transit but late; customer wants to know why it's delayed and when it will arrive. If the cause is specifically carrier-side (lost, customs, courier failure), prefer "Shipping Provider Issue".
+   - "Other" — when the call is genuinely about something none of the listed themes capture (e.g., a pure product-feature inquiry about an existing order, with no defect or complaint). Prefer this over forcing a poor fit.
+
+   When a call is about product features rather than logistics, prefer:
+   - "Product Complaint" if the customer is dissatisfied with the product
+   - "Hardware Defects" / "Battery & Charging" / "Screen Issues" / "SIM & Connectivity" if a specific defect is described
+   - "Other" if the customer is just asking a benign feature question (color, specs, compatibility) with no complaint
+
 6) sentiment — the customer's overall emotional state across the call. Pick EXACTLY ONE from:
    Frustrated, Neutral, Inquisitive, Satisfied, Angry
 
@@ -157,7 +169,27 @@ Extract nine fields. Return all values in English.
    - "No" — the call ended with no useful outcome at all: technical disconnect, customer hung up during hold, customer gave up waiting ("I'll call back later"), or agent never meaningfully engaged with the inquiry. Also mark "No" if the transcript consists mostly of [Hold music], [unintelligible], or silence with no substantive exchange.
 
 8) partial_reason — REQUIRED when resolution="Partial", otherwise null. Pick EXACTLY ONE:
-   - "callback_promised" — agent or back-office committed to a specific follow-up (return call, email, ticket). Cues: "we'll call you back", "someone from the team will get in touch", "I'll email you the details", "we'll send you a tracking link".
+   - "callback_promised" — agent or back-office EXPLICITLY committed to a SPECIFIC, FUTURE, REVIBE-INITIATED outbound contact to the customer (a Revibe-initiated phone call, email, WhatsApp message, or SMS) about this specific issue. The commitment must be ALL THREE of:
+       (a) FUTURE-TENSE — the contact has not yet happened at the time the call ends. Past-tense statements ("I sent the email", "agent provided the link", "agent confirmed the device is shipped") do NOT count.
+       (b) REVIBE-INITIATED — Revibe staff will reach out to the customer. The customer should NOT have to do anything to receive the contact. Customer-side actions ("please send a screenshot", "click the link", "raise a new claim", "wait on hold while I check") are customer_action_required, not callback_promised.
+       (c) SPECIFIC — a concrete channel (call, email, WhatsApp, SMS) and tied to this issue. Vague statements like "the team is working on it" or "someone will look into it" without naming a contact form go to vague_guidance.
+
+     DEFAULT — WHEN IN DOUBT, DO NOT classify as callback_promised. Prefer one of:
+       — customer_action_required (if the customer must act first to receive an outcome)
+       — vague_guidance (if the commitment is open-ended or generic)
+       — system_or_knowledge_gap (if the agent couldn't help and didn't commit to specific outreach)
+       — resolution=Yes with no partial_reason (if the agent's action was completed during the call)
+
+     · Include cues (only when FUTURE-TENSE and REVIBE-INITIATED): "we'll call you back tomorrow", "the manager will contact you within 24 hours", "I'll email you the details by Friday", "we'll send you a tracking link once we have it", "we'll get back to you within 48 hours", "I'll WhatsApp you the proof shortly".
+     · DO NOT classify as callback_promised — anti-examples:
+       — Past-tense actions: "agent provided the email", "agent sent the link", "I emailed you the document", "agent confirmed the device is shipped" (already happened — usually resolution=Yes).
+       — Live, in-call actions: "let me check while you wait", "agent contacted the shipping team during the call" (resolved on the call, not a future commitment).
+       — Customer-side actions: "please send a screenshot", "click the verification link", "raise a new claim", "guide on how to resubmit" (customer_action_required).
+       — Internal-only escalations without customer-facing follow-up: "I'll flag this internally", "I'll escalate to management" (resolution=Yes if action taken, vague_guidance otherwise).
+       — Customer announcing their own next step: "I'll call back later", "I'll try again tomorrow" (not Revibe's commitment).
+       — Automatic system updates: "your refund will reflect in 10 days", "the status will update automatically" (no Revibe action, just system behaviour).
+       — Generic team statements: "the team is working on it", "we're handling it", "the team will reach out" without a specific channel/timeframe (that's vague_guidance).
+       — Calls that ended badly: customer hung up, technical disconnect, "agent was attempting" but didn't complete (resolution=No).
    - "vague_guidance" — agent only gave a range or generic statement with no concrete commitment. Cues: "it should arrive in 3–5 business days", "the team is working on it", "please wait a bit longer", "it usually takes some time".
    - "system_or_knowledge_gap" — agent/supervisor could not answer due to system outage, lack of access, or insufficient knowledge, AND did not commit to a specific callback. Cues: "the system is down", "I can't see that on my end", "I'm not sure, let me check" (without resolution).
    - "customer_action_required" — agent's side is complete but the customer must do something to finalize. Cues: "click the verification link we sent", "visit the warehouse with your ID", "reply to our email with the invoice", "please complete the form".
