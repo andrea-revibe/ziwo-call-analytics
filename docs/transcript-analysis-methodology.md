@@ -81,6 +81,11 @@ Deterministic reproducibility is preserved by low temperature (0.1) + structured
 | Misc                  | Cancellation, Order Modification, Wrong or Missing Item, Supervisor Request, Initial or Unclear Contact |
 | Catch-all             | Other                                                                       |
 
+**Theme disambiguation rules.** Several themes are commonly conflated when a call partially overlaps two areas. Explicit guidance is embedded in the extraction prompt:
+- `Status Inquiry` is for **delivery state of an existing order only** ("where is my order", "when will it arrive"). Calls about product features (color, specifications, condition, country version) of an existing order are NOT Status Inquiry — they go to `Other` or to a more-specific defect theme if a defect is described.
+- `Shipping Provider Issue` is for **carrier-side problems** (lost shipment, customs hold, courier coordination, failed pickup). Not order-status inquiries, not product issues.
+- `Quality Check Wait` is for orders sitting in Revibe's internal QC step. Different from `Delivery Delays` (in transit, late) and `Status Inquiry` (delivery state).
+
 Calls-specific addition: the **Cross-channel** theme group. Inbound calls frequently reference prior attempts in chatbot, website, or app ("I tried to do this online but it didn't work"). Surfacing this quantifies how often digital channels push volume to phone — a valuable input for prioritizing digital self-serve fixes.
 
 ### Sentiment
@@ -95,7 +100,7 @@ A three-tier judgment of **information/action finality** — did the agent deliv
 
 - **Yes** — a final answer or action was delivered. Covers explicit confirmation, firm policy decisions ("the firm no"), specific status updates with concrete data, intra-session success (including after transfers or supervisor intervention), and "resolved but escalated" cases where a final answer was given even though the customer demanded a manager.
 - **Partial** — agent engaged with the inquiry but it is not concluded on this call; work remains. Always paired with `partial_reason` (closed enum):
-  - `callback_promised` — agent/back-office will follow up later (return call, email, ticket).
+  - `callback_promised` — agent or back-office explicitly committed to a SPECIFIC FUTURE Revibe-initiated outbound contact to the customer (call, email, WhatsApp, SMS) about this specific issue. Must be future-tense, Revibe-side (customer doesn't need to act first), and concrete (named channel). When in doubt, do NOT classify here — prefer `customer_action_required` (customer must act first), `vague_guidance` (open-ended), `system_or_knowledge_gap` (no specific outreach committed), or resolution=Yes (action completed in-call). Excludes past-tense actions ("I sent the email"), live in-call actions, customer-side actions, internal-only escalations, customer-announced next steps, automatic system updates, and calls that ended badly.
   - `vague_guidance` — agent gave only a range or generic statement (e.g., "3–5 business days") with no concrete commitment.
   - `system_or_knowledge_gap` — agent/supervisor could not answer due to system outage, access, or knowledge, and did not commit to a callback.
   - `customer_action_required` — agent's side is complete but the customer must still act (click a link, visit a warehouse, reply to an email).

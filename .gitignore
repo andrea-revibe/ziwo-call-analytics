@@ -6,3 +6,9 @@ data/
 .DS_Store
 .deepeval/
 scratch/
+
+# Analysis outputs that contain raw call narratives or transcript excerpts.
+# Keep aggregated baseline_*.json snapshots (KPIs only) tracked, but never
+# commit *_audit.json (per-call summaries) or smoke_*.json (transcript excerpts).
+analysis/*_audit.json
+analysis/smoke_*.json

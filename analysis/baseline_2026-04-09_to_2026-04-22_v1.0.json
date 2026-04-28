@@ -1,0 +1,219 @@
+{
+  "methodology_version": "v1.0",
+  "data_window": {
+    "start": "2026-04-09",
+    "end": "2026-04-22"
+  },
+  "generated_at": "2026-04-27T12:26:55.794203+00:00",
+  "total_calls": 2930,
+  "country_totals": {
+    "KSA": 1211,
+    "UAE": 578,
+    "ZA": 1130
+  },
+  "cohorts": {
+    "DEL-03": {
+      "name": "Callback Promise Reliability",
+      "kpis": {
+        "n": 951,
+        "avg_friction": 1.71,
+        "escalation_pct": 12.5,
+        "repeat_caller_pct_of_calls": 51.7,
+        "repeat_caller_pct_of_callers": 28.6,
+        "n_unique_callers": 643,
+        "impact_score": 1864,
+        "by_country": {
+          "UAE": {
+            "n": 192,
+            "pct_of_country": 33.2,
+            "escalation_pct": 12.5
+          },
+          "KSA": {
+            "n": 468,
+            "pct_of_country": 38.6,
+            "escalation_pct": 16.0
+          },
+          "ZA": {
+            "n": 289,
+            "pct_of_country": 25.6,
+            "escalation_pct": 6.9
+          }
+        }
+      }
+    },
+    "DEL-01": {
+      "name": "Carrier Tracking Granularity",
+      "kpis": {
+        "n": 320,
+        "avg_friction": 0.98,
+        "escalation_pct": 3.4,
+        "repeat_caller_pct_of_calls": 30.0,
+        "repeat_caller_pct_of_callers": 14.2,
+        "n_unique_callers": 261,
+        "impact_score": 336,
+        "by_country": {
+          "UAE": {
+            "n": 58,
+            "pct_of_country": 10.0,
+            "escalation_pct": 1.7
+          },
+          "KSA": {
+            "n": 112,
+            "pct_of_country": 9.2,
+            "escalation_pct": 5.4
+          },
+          "ZA": {
+            "n": 145,
+            "pct_of_country": 12.8,
+            "escalation_pct": 2.8
+          }
+        }
+      }
+    },
+    "REF-01": {
+      "name": "PSP Refund Velocity",
+      "kpis": {
+        "n": 118,
+        "avg_friction": 1.77,
+        "escalation_pct": 16.9,
+        "repeat_caller_pct_of_calls": 37.3,
+        "repeat_caller_pct_of_callers": 21.3,
+        "n_unique_callers": 94,
+        "impact_score": 249,
+        "by_country": {
+          "UAE": {
+            "n": 22,
+            "pct_of_country": 3.8,
+            "escalation_pct": 18.2
+          },
+          "KSA": {
+            "n": 69,
+            "pct_of_country": 5.7,
+            "escalation_pct": 13.0
+          },
+          "ZA": {
+            "n": 26,
+            "pct_of_country": 2.3,
+            "escalation_pct": 26.9
+          }
+        }
+      }
+    },
+    "RET-02": {
+      "name": "Procedural Claim Recovery (Returns + Warranty)",
+      "kpis": {
+        "n": 78,
+        "avg_friction": 1.74,
+        "escalation_pct": 7.7,
+        "repeat_caller_pct_of_calls": 15.4,
+        "repeat_caller_pct_of_callers": 8.3,
+        "n_unique_callers": 72,
+        "impact_score": 148,
+        "by_country": {
+          "UAE": {
+            "n": 16,
+            "pct_of_country": 2.8,
+            "escalation_pct": 12.5
+          },
+          "KSA": {
+            "n": 27,
+            "pct_of_country": 2.2,
+            "escalation_pct": 11.1
+          },
+          "ZA": {
+            "n": 35,
+            "pct_of_country": 3.1,
+            "escalation_pct": 2.9
+          }
+        }
+      }
+    },
+    "DEL-02": {
+      "name": "Customs Hold Resolution",
+      "kpis": {
+        "n": 79,
+        "avg_friction": 1.56,
+        "escalation_pct": 10.1,
+        "repeat_caller_pct_of_calls": 36.7,
+        "repeat_caller_pct_of_callers": 18.0,
+        "n_unique_callers": 61,
+        "impact_score": 139,
+        "by_country": {
+          "UAE": {
+            "n": 0,
+            "pct_of_country": 0.0,
+            "escalation_pct": 0.0
+          },
+          "KSA": {
+            "n": 36,
+            "pct_of_country": 3.0,
+            "escalation_pct": 16.7
+          },
+          "ZA": {
+            "n": 42,
+            "pct_of_country": 3.7,
+            "escalation_pct": 4.8
+          }
+        }
+      }
+    },
+    "RET-01": {
+      "name": "Warranty QC Visibility",
+      "kpis": {
+        "n": 58,
+        "avg_friction": 1.59,
+        "escalation_pct": 12.1,
+        "repeat_caller_pct_of_calls": 29.3,
+        "repeat_caller_pct_of_callers": 12.8,
+        "n_unique_callers": 47,
+        "impact_score": 106,
+        "by_country": {
+          "UAE": {
+            "n": 16,
+            "pct_of_country": 2.8,
+            "escalation_pct": 12.5
+          },
+          "KSA": {
+            "n": 17,
+            "pct_of_country": 1.4,
+            "escalation_pct": 23.5
+          },
+          "ZA": {
+            "n": 25,
+            "pct_of_country": 2.2,
+            "escalation_pct": 4.0
+          }
+        }
+      }
+    },
+    "REF-02": {
+      "name": "Refund Choice & Visibility",
+      "kpis": {
+        "n": 39,
+        "avg_friction": 1.49,
+        "escalation_pct": 7.7,
+        "repeat_caller_pct_of_calls": 41.0,
+        "repeat_caller_pct_of_callers": 23.3,
+        "n_unique_callers": 30,
+        "impact_score": 64,
+        "by_country": {
+          "UAE": {
+            "n": 13,
+            "pct_of_country": 2.2,
+            "escalation_pct": 7.7
+          },
+          "KSA": {
+            "n": 20,
+            "pct_of_country": 1.7,
+            "escalation_pct": 5.0
+          },
+          "ZA": {
+            "n": 6,
+            "pct_of_country": 0.5,
+            "escalation_pct": 16.7
+          }
+        }
+      }
+    }
+  }
+}
